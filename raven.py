@@ -7,6 +7,13 @@ from contextlib import contextmanager
 
 import cairo
 
+figure_size = 99
+
+def create_cairo_surface(width, height, color=cairo.FORMAT_ARGB32):
+    s = cairo.ImageSurface(color, width, height)
+    cr = cairo.Context(s)
+    return s, cr
+
 class Feature(object):
     __metaclass__ = abc.ABCMeta
 
@@ -263,19 +270,21 @@ class FeatureFigure(Figure):
         num_feature_sets = len(self.feature_sets)
         assert len(self.features) == num_feature_sets == len(configuration)
 
+def surface_to_png(surface):
+    buffer = StringIO.StringIO()
+    surface.write_to_png(buffer)
+    png = buffer.getvalue()
+    buffer.close()
+    return png
+
 class CairoFigure(Figure):
     def create_context(self, width, height, color=cairo.FORMAT_ARGB32):
-        surface = cairo.ImageSurface (cairo.FORMAT_ARGB32, width, height)
-        cr = cairo.Context (surface)
-        cr.scale (width/1.0, height/1.0) # Normalizing the canvas
-        return surface, cr
+        s, cr = create_cairo_surface(width, height, color)
+        cr.scale(width/1.0, height/1.0)
+        return s, cr
 
     def surface_to_png(self, surface):
-        buffer = StringIO.StringIO()
-        surface.write_to_png(buffer)
-        png = buffer.getvalue()
-        buffer.close()
-        return png
+        return surface_to_png(surface)
 
 class OneSimpleFigure(FeatureFigure, CairoFigure):
     def __init__(self, feature_sets, features):
@@ -285,22 +294,20 @@ class OneSimpleFigure(FeatureFigure, CairoFigure):
         
     def render(self, configuration):
         FeatureFigure.render(self, configuration)
-        surface, cr = self.create_context(128, 128)
+        surface, cr = self.create_context(figure_size, figure_size)
         drawable = self.features[0][configuration[0]]()
         drawable.draw(cr)
         return self.surface_to_png(surface)
 
 def rpm_from_pngs(pngs):
-    rpm = cairo.ImageSurface
-    width, height = 384,384
-    surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, width, height)
-    cr = cairo.Context(surface)
-    for x,y,png in zip([0, 128, 256] * 3, [0] * 3 + [128] * 3 + [256] * 3, pngs):
+    width, height = figure_size * 3, figure_size * 3
+    rpm, cr = create_cairo_surface(width, height)
+    for x,y,png in zip([0, figure_size, figure_size*2] * 3, [0] * 3 + [figure_size] * 3 + [figure_size*2] * 3, pngs):
         figure = cairo.ImageSurface.create_from_png(StringIO.StringIO(png))
         cr.set_source_surface(figure, x, y)
         cr.paint()
     buffer = StringIO.StringIO()
-    surface.write_to_png(buffer)
+    rpm.write_to_png(buffer)
     png = buffer.getvalue()
     buffer.close()
     return png
@@ -336,7 +343,29 @@ def cmatrix_from_two_transitions(figure, configuration, transition1, transition2
             assert(cmatrix[i][j] == c)
     return cmatrix
     
+def create_blank_png(width, height):
+    s, cr = create_cairo_surface(width, height)
+    return surface_to_png(s)
 
+def rpm_images(figure, cmatrix, choices):
+    pngs = [figure.render(c) for c in itertools.chain(*cmatrix)]
+    blank_png = create_blank_png(figure_size, figure_size)
+    answer, pngs[8] = pngs[8], blank_png
+    rpm = rpm_from_pngs(pngs)
+    choice_images = [figure.render(c) for c in choices]
+    return rpm, answer, choice_images
+
+def generate_choices(f, c, t1, t2, answer):
+    choices = {str(c):c}
+    for i in xrange(10):
+        c = f.transform(c, t1)
+        choices[str(c)] = c
+    for i in xrange(10):
+        c = f.transform(c, t2)
+        choices[str(c)] = c
+    if str(answer) in choices:
+        del(choices[str(answer)])
+    return choices.values()
         
 
 
