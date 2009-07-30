@@ -5,6 +5,7 @@ import itertools
 import abc
 from contextlib import contextmanager
 
+import numpy
 import cairo
 
 figure_size = 99
@@ -25,171 +26,133 @@ class DrawableFeature(Feature):
 
 default_line_width = (3, 3)
 
+def identity_matrix():
+    return numpy.array([[1,0,0],[0,1,0],[0,0,1]])
+
 class ShapeFeature(DrawableFeature):
     __metaclass__ = abc.ABCMeta
-    def __init__(self, center=(.5,.5), 
-                       radius=.25, 
-                       rotation=0,
-                       mirror=False,
-                       shear=1.0,
+    def __init__(self, transformation=identity_matrix(),
                        color=(0,0,0,1), 
                        line_width=default_line_width):
-        self.center = center
-        self.radius = radius
-        self.rotation = rotation
-        self.mirror = mirror
-        self.shear = shear
+        self.transformation = transformation
         self.color = color
         self.line_width = line_width
 
     @contextmanager
-    def fat_scale(self, cr):
+    def transformed(self, cr):
         cr.save()
-        cr.translate((1.0 - self.fatness) / 2, 0)
-        cr.scale(self.fatness, 1.0)
+        t = self.transformation
+        cr.transform(cairo.Matrix(t[0,0], t[1,0], t[0,1], t[1,1], t[0,2], t[1,2]))
         yield
         cr.restore()
-
-    @contextmanager
-    def reflected(self, cr):
-        if self.mirror:
-            cr.save()
-            cr.translate(.5, .5)
-            cr.transform(cairo.Matrix(-1,0,0,1))
-            cr.translate(-.5, -.5)
-            yield
-            cr.restore()
-        else:
-            yield
-
-    @contextmanager
-    def rotated(self, cr):
-        cr.save()
-        cr.translate(.5, .5)
-        cr.rotate(self.rotation)
-        cr.translate(-.5, -.5)
-        yield
-        cr.restore()
-
-
-class OblongShapeFeature(ShapeFeature):
-    __metaclass__ = abc.ABCMeta
-    def __init__(self, center=(.5,.5), 
-                       radius=.25, 
-                       rotation=0.0,
-                       mirror=False,
-                       shear=1.0,
-                       color=(0,0,0,1), 
-                       line_width=default_line_width,
-                       fatness=1.0):
-        self.fatness = fatness
-        ShapeFeature.__init__(self, center, radius, rotation, mirror, shear, color, line_width)
 
 class FillableShapeFeature(ShapeFeature):
-    def __init__(self, center=(.5,.5), 
-                       radius=.25, 
-                       rotation=0.0,
-                       mirror=False,
-                       shear=1.0,
+    def __init__(self, transformation=identity_matrix(),
                        color=(0,0,0,1), 
                        line_width=default_line_width,
-                       fill=False,
-                       fill_color=(0,0,0,1)):
-        self.fill = fill
+                       fill_color=None):
         self.fill_color = fill_color
-        ShapeFeature.__init__(self, center, radius, rotation, mirror, shear, color, line_width)
+        ShapeFeature.__init__(self, transformation, color, line_width)
 
-class OblongFillableShapeFeature(FillableShapeFeature, OblongShapeFeature):
-    def __init__(self, center=(.5,.5), 
-                       radius=.25, 
-                       rotation=0.0,
-                       mirror=False,
-                       shear=1.0,
-                       color=(0,0,0,1), 
-                       line_width=default_line_width,
-                       fatness=1.0,
-                       fill=False,
-                       fill_color=(0,0,0,1)):
-        OblongShapeFeature.__init__(self, center, radius, rotation, mirror, shear, color, line_width, fatness)
-        FillableShapeFeature.__init__(self, center, radius, rotation, mirror, shear, color, line_width, fill, fill_color)
-    
-class Triangle(OblongFillableShapeFeature):
+class SimpleShapeFeature(ShapeFeature):
+    __metaclass__ = abc.ABCMeta
     def draw(self, cr):
         cr.set_line_width(max(cr.device_to_user_distance(*self.line_width)))
         cr.set_line_join(cairo.LINE_JOIN_ROUND)
-        if self.fill:
-            cr.set_source_rgba(*self.fill_color)
-            self.draw_lines(cr)
-            cr.fill()
         cr.set_source_rgba(*self.color)
-        with self.reflected(cr):
-            with self.rotated(cr):
-                self.draw_lines(cr)
+        with self.transformed(cr):
+            self.draw_lines(cr)
         cr.stroke()
 
+    @abc.abstractmethod
+    def draw_lines():
+        pass
+
+class SimpleFillableShapeFeature(FillableShapeFeature, SimpleShapeFeature):
+    def draw(self, cr):
+        cr.set_line_width(max(cr.device_to_user_distance(*self.line_width)))
+        cr.set_line_join(cairo.LINE_JOIN_ROUND)
+        if self.fill_color is not None:
+            cr.set_source_rgba(*self.fill_color)
+            with self.transformed(cr):
+                self.draw_lines(cr)
+            cr.fill()
+        SimpleShapeFeature.draw(self, cr)
+
+class Triangle(SimpleFillableShapeFeature):
     def draw_lines(self, cr):
-        x,y = self.center
-        xradius = self.radius * self.fatness
-        yradius = self.radius
-        r32 = (math.sqrt(3) / 2 * xradius)
+        x,y = .5, .5
+        radius = .25
+        r32 = (math.sqrt(3) / 2 * radius)
         left, right = x - r32, x + r32
-        bottom, top = y + (yradius / 2.0), y - yradius
-        cr.move_to (left, bottom)
-        cr.line_to ((left + right) / 2.0, top) # Line to (x,y)
-        cr.line_to (right, bottom) # Line to (x,y)
+        bottom, top = y + (radius / 2.0), y - radius
+        cr.move_to(left, bottom)
+        cr.line_to((left + right) / 2.0, top)
+        cr.line_to(right, bottom)
         cr.close_path ()
 
-class Square(OblongFillableShapeFeature):
-    def draw(self, cr):
-        cr.set_line_width(max(cr.device_to_user_distance(*self.line_width)))
-        if self.fill:
-            cr.set_source_rgba(*self.fill_color)
-            self.draw_lines(cr)
-            cr.fill()
-        cr.set_source_rgba(*self.color)
-        with self.reflected(cr):
-            with self.rotated(cr):
-                self.draw_lines(cr)
-        cr.stroke()
-
+class Square(SimpleFillableShapeFeature):
     def draw_lines(self, cr):
-        x,y = self.center
-        xradius = self.radius * self.fatness
-        yradius = self.radius
-        left, top = x - xradius, y - yradius
+        left, top = .25, .25
+        side_length = .5
         cr.set_line_join(cairo.LINE_JOIN_ROUND)
-        cr.rectangle(left, top, 2 * xradius, 2 * yradius)
+        cr.rectangle(left, top, side_length, side_length)
 
-class Circle(OblongFillableShapeFeature):
-    def draw(self, cr):
-        cr.set_line_width(max(cr.device_to_user_distance(*self.line_width)))
-        if self.fill:
-            cr.set_source_rgba(*self.fill_color)
-            with self.fat_scale(cr):
-                self.draw_lines(cr)
-            cr.fill()
-        cr.set_source_rgba(*self.color)
-        with self.fat_scale(cr):
-            self.draw_lines(cr)
-        cr.stroke()
-
+class Circle(SimpleFillableShapeFeature):
     def draw_lines(self, cr):
-        x,y = self.center
-        cr.move_to(x + self.radius, y)
-        cr.arc(x, y, self.radius, 0, 2 * math.pi)
+        cr.move_to(0.75, 0.5)
+        cr.arc(.5, .5, .25, 0, 2 * math.pi)
         cr.close_path()
 
 class FeatureSet(object):
     __metaclass__ = abc.ABCMeta
+    @abc.abstractmethod
     def __init__(self):
         pass
 
-class TransformableFeatureSet(FeatureSet):
+    @classmethod
+    @abc.abstractmethod
+    def suggested_features(cls, all_features):
+        pass
+
+class ValueFeature(Feature):
+    __metaclass__ = abc.ABCMeta
+    value = None
+
+class ColorFeature(ValueFeature):
     __metaclass__ = abc.ABCMeta
 
+class Blue(ColorFeature):
+    value = (0,0,1,1)
+class Red(ColorFeature):
+    value = (1,0,0,1)
+class Green(ColorFeature):
+    value = (0,1,0,1)
+class Yellow(ColorFeature):
+    value = (1,1,0,1)
+class Cyan(ColorFeature):
+    value = (0,1,1,1)
+class Magenta(ColorFeature):
+    value = (1,0,1,1)
+
+class SmallPositiveIntegerFeature(ValueFeature):
+    __metaclass__ = abc.ABCMeta
+
+class V1(SmallPositiveIntegerFeature):
+    value = 1
+class V2(SmallPositiveIntegerFeature):
+    value = 2
+class V4(SmallPositiveIntegerFeature):
+    value = 4
+class V8(SmallPositiveIntegerFeature):
+    value = 8
+class V16(SmallPositiveIntegerFeature):
+    value = 16 
+
+class TransformableFeatureSet(FeatureSet):
+    __metaclass__ = abc.ABCMeta
     def transform(self, configuration, amount):
         return configuration + amount
-
     def can_transform(self, configuration, amount):
         return 0 < amount <= configuration + amount < len(self.features)
 
@@ -202,14 +165,12 @@ class DrawableFeatureSet(TransformableFeatureSet):
 
 class RingFeatureSet(TransformableFeatureSet):
     __metaclass__ = abc.ABCMeta
-    
     def transform(self, configuration, amount):
         t = TransformableFeatureSet.transform(self, configuration, amount)
         if t < len(self.features):
             return t
         else:
             return t - len(self.features)
-
     def can_transform(self, configuration, amount):
         return 0 < amount and 0 <= configuration
 
@@ -218,6 +179,11 @@ class TripleFeatureSet(RingFeatureSet):
     def __init__(self, features):
         assert(len(features) == 3)
         RingFeatureSet.__init__(self)
+    @classmethod
+    def suggested_features(self, all_features):
+        sets = [s for s in itertools.combinations(all_features, 3)
+                    if not (s[0] == s[1] == s[2])]
+        return sets
 
 class TripleDrawableFeatureSet(TripleFeatureSet, DrawableFeatureSet):
     __metaclass__ = abc.ABCMeta
@@ -231,12 +197,65 @@ class ShapeFeatureSet(DrawableFeatureSet):
         DrawableFeatureSet.__init__(self, features)
         for f in features:
             assert(issubclass(f, ShapeFeature))
+    @classmethod
+    def clean_suggested_features(self, all_features):
+        shape_features = [f for f in all_features if issubclass(f, ShapeFeature)]
+        return shape_features
 
 class TripleShapeFeatureSet(TripleFeatureSet, ShapeFeatureSet):
     def __init__(self, features):
         TripleFeatureSet.__init__(self, features)
         ShapeFeatureSet.__init__(self, features)
         self.features = features
+    @classmethod
+    def suggested_features(self, all_features):
+        shape_features = ShapeFeatureSet.clean_suggested_features(all_features)
+        sets = TripleFeatureSet.suggested_features(shape_features)
+        return sets
+
+class ColorFeatureSet(FeatureSet):
+    __metaclass__ = abc.ABCMeta
+    def __init__(self, features):
+        FeatureSet.__init__(self)
+        self.features = features
+        for f in features:
+            assert(issubclass(f, ColorFeature))
+    @classmethod
+    def clean_suggested_features(self, all_features):
+        return [f for f in all_features if issubclass(f, ColorFeature)]
+
+class TripleColorFeatureSet(TripleFeatureSet, ColorFeatureSet):
+    def __init__(self, features):
+        TripleFeatureSet.__init__(self, features)
+        ColorFeatureSet.__init__(self, features)
+        self.features = features
+    @classmethod
+    def suggested_features(self, all_features):
+        color_features = ColorFeatureSet.clean_suggested_features(all_features)
+        sets = TripleFeatureSet.suggested_features(color_features)
+        return sets
+
+class SmallPositiveIntegerFeatureSet(FeatureSet):
+    __metaclass__ = abc.ABCMeta
+    def __init__(self, features):
+        FeatureSet.__init__(self)
+        for f in features:
+            assert(issubclass(f, SmallPositiveIntegerFeature))
+    @classmethod
+    def clean_suggested_features(self, all_features):
+        return [f for f in all_features if issubclass(f, SmallPositiveIntegerFeature)]
+
+class TripleSmallPositiveIntegerFeatureSet(TripleFeatureSet, SmallPositiveIntegerFeatureSet):
+    def __init__(self, features):
+        TripleFeatureSet.__init__(self, features)
+        SmallPositiveIntegerFeatureSet.__init__(self, features)
+        self.features = features
+    @classmethod
+    def suggested_features(self, all_features):
+        features = SmallPositiveIntegerFeatureSet.clean_suggested_features(all_features)
+        sets = TripleFeatureSet.suggested_features(features)
+        return sets
+
 
 class Figure:
     __metaclass__ = abc.ABCMeta
@@ -249,8 +268,10 @@ class FeatureFigure(Figure):
     def __init__(self, feature_sets, features):
         assert(len(feature_sets) == len(features))
         self.feature_sets = feature_sets
-        #TODO: jperla: make sure features match up with feature sets
         self.features = features
+        for fs,f in zip(self.feature_sets, self.features):
+            # makes sure that features match up to feature sets
+            fs(f)
     
     def transform(self, configuration,  amounts):
         assert(len(amounts) == len(configuration))
@@ -298,6 +319,34 @@ class OneSimpleFigure(FeatureFigure, CairoFigure):
         drawable = self.features[0][configuration[0]]()
         drawable.draw(cr)
         return self.surface_to_png(surface)
+
+    @classmethod
+    def suggested_feature_sets(cls, all_feature_sets):
+        return [[f] for f in all_feature_sets if issubclass(f, DrawableFeatureSet)]
+
+class ColoredLinedShapeFigure(FeatureFigure, CairoFigure):
+    def __init__(self, feature_sets, features):
+        assert(len(feature_sets) == 3)
+        assert(issubclass(feature_sets[0], ShapeFeatureSet))
+        assert(issubclass(feature_sets[1], ColorFeatureSet))
+        assert(issubclass(feature_sets[2], SmallPositiveIntegerFeatureSet))
+        FeatureFigure.__init__(self, feature_sets, features)
+        
+    def render(self, configuration):
+        FeatureFigure.render(self, configuration)
+        surface, cr = self.create_context(figure_size, figure_size)
+        shape = self.features[0][configuration[0]]
+        color = self.features[1][configuration[1]].value
+        w = self.features[2][configuration[2]].value
+        shape(color=color, line_width=(w,w)).draw(cr)
+        return self.surface_to_png(surface)
+
+    @classmethod
+    def suggested_feature_sets(cls, all_feature_sets):
+        fs1 = [f for f in all_feature_sets if issubclass(f, ShapeFeatureSet)]
+        fs2 = [f for f in all_feature_sets if issubclass(f, ColorFeatureSet)]
+        fs3 = [f for f in all_feature_sets if issubclass(f, SmallPositiveIntegerFeatureSet)]
+        return list(itertools.product(fs1, fs2, fs3))
 
 def rpm_from_pngs(pngs):
     width, height = figure_size * 3, figure_size * 3
@@ -362,6 +411,14 @@ def generate_choices(f, c, t1, t2, answer):
         choices[str(c)] = c
     for i in xrange(10):
         c = f.transform(c, t2)
+        choices[str(c)] = c
+    t3 = [numpy.random.randint(0, 3) for r in range(len(c))]
+    for i in xrange(10):
+        c = f.transform(c, t3)
+        choices[str(c)] = c
+    t4 = [numpy.random.randint(0, 3) for r in range(len(c))]
+    for i in xrange(10):
+        c = f.transform(c, t4)
         choices[str(c)] = c
     if str(answer) in choices:
         del(choices[str(answer)])
