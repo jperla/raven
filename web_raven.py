@@ -222,14 +222,26 @@ def debug(req, p):
                                      [V2, V8, V16]])
     c = [2,1,0]
     t1, t2 = [1,1,1], [2,1,2]
-    cmatrix = cmatrix_from_one_transition(f, c, t1)
+    #cmatrix = cmatrix_from_one_transition(f, c, t1)
     cmatrix = cmatrix_from_two_transitions(f, c, t1, t2)
     #TODO: jperla: take these from settings
-    data = random_matrix(all_figures, all_feature_sets, all_features)
-    f, c, t1, t2 = data['fg'], data['c'], data['t1'], data['t2']
-    cmatrix = cmatrix_from_two_transitions(f, c, t1, t2)
+    #data = random_matrix(all_figures, all_feature_sets, all_features)
+    #f, c, t1, t2 = data['fg'], data['c'], data['t1'], data['t2']
+    #cmatrix = cmatrix_from_two_transitions(f, c, t1, t2)
     png = rpm_from_cmatrix(f, cmatrix)
-    p.headers = [webify.http.headers.content_types.image_png]
+
+    f = ColoredLinedShapeFigure([TripleShapeFeatureSet,
+                                 TripleColorFeatureSet,
+                                 TripleSmallPositiveIntegerFeatureSet,],
+                                    [[Triangle, Square, Circle],
+                                     [Yellow, Blue, Red],
+                                     [V2, V8, V16]])
+    c = [2,1,0]
+    png = f.render(c)
+
+    k,v = webify.http.headers.content_types.image_png
+    p.headers[k] = v
+    p.encoding = None
     p(png)
 
 from webify.http import server

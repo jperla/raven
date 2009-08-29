@@ -348,6 +348,37 @@ class ColoredLinedShapeFigure(FeatureFigure, CairoFigure):
         fs3 = [f for f in all_feature_sets if issubclass(f, SmallPositiveIntegerFeatureSet)]
         return list(itertools.product(fs1, fs2, fs3))
 
+class RotatedShapeFigure(FeatureFigure, CairoFigure):
+    def __init__(self, feature_sets, features):
+        assert(len(feature_sets) == 2)
+        assert(issubclass(feature_sets[0], ShapeFeatureSet))
+        assert(issubclass(feature_sets[1], RotationAngleFeatureSet))
+        FeatureFigure.__init__(self, feature_sets, features)
+        
+    def render(self, configuration):
+        FeatureFigure.render(self, configuration)
+        surface, cr = self.create_context(figure_size, figure_size)
+        shape = self.features[0][configuration[0]]
+        angle = self.features[1][configuration[1]].value
+        transformation = transformation_matrix(angle=angle)
+        shape(transformation=transformation).draw(cr)
+        return self.surface_to_png(surface)
+
+    @classmethod
+    def suggested_feature_sets(cls, all_feature_sets):
+        return list([])
+
+def transformation_matrix(angle=0):
+    i = identity_matrix()
+    r = rotated_transformation_matrix(angle)
+    return i * r
+
+def rotated_transformation_matrix(a, x=0, y=0):
+    return numpy.array([
+        [numpy.cos(a), numpy.sin(a), x - x * numpy.cos(a) + y * numpy.sin(a)],
+        [-numpy.sin(a), numpy.cos(a), x - x * numpy.sin(a) + y * numpy.cos(a)],
+        [0, 0, 1]])
+
 def rpm_from_pngs(pngs):
     width, height = figure_size * 3, figure_size * 3
     rpm, cr = create_cairo_surface(width, height)
