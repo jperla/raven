@@ -72,7 +72,7 @@ def generate_random_matrix(req, p):
     variables = random_matrix(*pool)
     print variables
     id = id_from_matrix_specification(variables, *pool)
-    webify.http.status.redirect(ask_matrix.url(id))
+    webify.http.redirect_page(p, ask_matrix.url(id))
 
 def id_from_matrix_specification(spec, 
                                  all_figures, all_feature_sets, all_features):
@@ -166,7 +166,10 @@ def matrix_guess(req, p, id):
     cmatrix = cmatrix_from_one_transition(f, c, t1)
     cmatrix = cmatrix_from_two_transitions(f, c, t1, t2)
     png,_,_ = rpm_images(f, cmatrix, [])
-    p.headers = [webify.http.headers.content_types.image_png]
+    #TODO: jperla: make this simpler
+    k,v = webify.http.headers.content_types.image_png
+    p.headers[k] = v
+    p.encoding = None
     p(png)
 
 
@@ -175,7 +178,10 @@ def matrix_guess(req, p, id):
 def figure_image(req, p, id):
     f, c = figure_from_id(id)
     png = f.render(c)
-    p.headers = [webify.http.headers.content_types.image_png]
+    #TODO: jperla: make this simpler
+    k,v = webify.http.headers.content_types.image_png
+    p.headers[k] = v
+    p.encoding = None
     p(png)
 
 def figure_from_id(id):
@@ -239,4 +245,5 @@ if __name__ == '__main__':
                                         EvalException,
                                      )
 
+    print 'Loading server...'
     server.serve(wsgi_app, host='0.0.0.0', port=8087, reload=True)
