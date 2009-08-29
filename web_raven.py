@@ -31,6 +31,7 @@ all_features = [Triangle, Square, Circle,
                 Blue, Red, Green, Yellow, Magenta, Cyan,
                 V1, V2, V4, V8, V16,
                ]
+world = (all_figures, all_feature_sets, all_features)
 
 def random_element(array):
     return array[numpy.random.randint(0, len(array))]
